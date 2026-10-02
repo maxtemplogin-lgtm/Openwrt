@@ -1,0 +1,13 @@
+#!/bin/sh
+# Kenstel KAP-110 LED configuration
+#
+# The stock boot log reports "current dts led_source_num is 0" - the vendor
+# device tree defines no LEDs, so there is nothing known to bind. Left minimal
+# and safe: no GPIOs are claimed, so a wrong pin number cannot be written.
+
+. /lib/functions.sh
+
+board=kenstel,kap110
+
+# No LED bindings defined for this board. Add ucidef_set_led_* lines here once
+# the GPIO assignments are known from a working DTS.

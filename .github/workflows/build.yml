@@ -1,0 +1,164 @@
+name: Build KAP-110 firmware
+
+# Builds a custom OpenWrt 25.12.5 image for the Kenstel KAP-110 (IPQ4018).
+# The device profile lives in target/linux/ipq40xx/ in this repo and is copied
+# into a fresh OpenWrt checkout before building.
+#
+# Trigger manually from the Actions tab, or by pushing a change under
+# target/linux/ipq40xx/.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'target/linux/ipq40xx/**'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: read
+
+env:
+  OPENWRT_VERSION: v25.12.5
+
+jobs:
+  build:
+    name: Build ipq40xx firmware
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout this repository (device profile)
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang flex bison g++ gawk git \
+            libncurses-dev libssl-dev python3-setuptools rsync \
+            swig unzip zlib1g-dev file wget bzip2 xz-utils \
+            ecj fastjar java-propose-classpath python3-distutils \
+            python3-jsonschema python3-yaml
+
+      - name: Free disk space
+        # GitHub runners ship with ~25GB free; a full ipq40xx toolchain build
+        # needs considerably more than that.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Cache OpenWrt download cache
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: openwrt-dl-${{ env.OPENWRT_VERSION }}-${{ runner.os }}
+          restore-keys: openwrt-dl-${{ env.OPENWRT_VERSION }}-
+            openwrt-dl-
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ env.OPENWRT_VERSION }}-${{ runner.os }}
+          restore-keys: ccache-${{ env.OPENWRT_VERSION }}-
+
+      - name: Configure ccache
+        run: |
+          sudo apt-get install -y ccache
+          echo "CCACHE_DIR=/home/runner/.ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          echo "CCACHE_COMPRESS=1" >> "$GITHUB_ENV"
+          ccache -M 5G
+
+      - name: Clone OpenWrt
+        run: |
+          git clone --depth 1 --branch "$OPENWRT_VERSION" \
+            https://git.openwrt.org/openwrt/openwrt.git openwrt
+          cd openwrt
+          git log -1 --oneline
+
+      - name: Copy KAP-110 device profile into the tree
+        run: |
+          cp -rv "$GITHUB_WORKSPACE/target/linux/ipq40xx/." openwrt/target/linux/ipq40xx/
+          # make the new board appear in `make menuconfig`
+          touch openwrt/target/linux/ipq40xx/Makefile
+          cd openwrt
+          grep -n 'kenstel' target/linux/ipq40xx/image/kenstel-kap110.mk
+
+      - name: Update feeds
+        working-directory: openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure target
+        working-directory: openwrt
+        # Non-interactive config equivalent of:
+        #   make menuconfig  ->  ipq40xx / generic / Kenstel KAP-110
+        run: |
+          cat > .config <<'EOF'
+          CONFIG_TARGET_ipq40xx=y
+          CONFIG_TARGET_ipq40xx_generic=y
+          CONFIG_TARGET_MULTI_PROFILE=y
+          CONFIG_TARGET_ipq40xx_DEVICE_kenstel_kap110=y
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl=y
+          CONFIG_PACKAGE_ath10k-firmware-qca9888-ct=y
+          CONFIG_PACKAGE_kmod-usb-acm=y
+          CONFIG_DEVEL=y
+          CONFIG_AUTOREMOVE=y
+          CONFIG_IMAGEOPT=y
+          CONFIG_CCACHE=y
+          EOF
+          make defconfig
+
+      - name: Verify the board is selected
+        working-directory: openwrt
+        run: |
+          grep -E 'CONFIG_TARGET_ipq40xx_DEVICE_kenstel_kap110' .config || {
+            echo "::error::kenstel_kap110 is not present in .config"
+            exit 1
+          }
+
+      - name: Build
+        working-directory: openwrt
+        run: make -j$(nproc) V=s
+
+      - name: Collect images
+        working-directory: openwrt
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          find bin/targets/ipq40xx/generic -type f \
+            \( -name '*kenstel_kap110*' -o -name 'sha256sums*' \) \
+            -exec ls -lh {} \;
+          find bin/targets/ipq40xx/generic -type f \
+            \( -name '*kenstel_kap110*' -o -name 'sha256sums*' \) \
+            -exec cp -v {} "$GITHUB_WORKSPACE/artifacts/" \;
+
+      - name: Summary
+        run: |
+          {
+            echo "### KAP-110 firmware built"
+            echo
+            echo "| File | Size |"
+            echo "|------|------|"
+            for f in artifacts/*; do
+              [ -f "$f" ] && echo "| \`$(basename "$f")\` | $(du -h "$f" | cut -f1) |"
+            done
+            echo
+            echo "### Which image to flash first"
+            echo
+            echo '**\`initramfs-fit-uImage.itb\`** - boots from RAM, writes nothing to'
+            echo 'flash. Copy to a FAT32 USB stick, insert it, power on while holding'
+            echo 'the reset button. Use this first.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-kenstel-kap110
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 90

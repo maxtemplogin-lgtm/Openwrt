@@ -1,0 +1,63 @@
+#!/bin/sh
+# Kenstel KAP-110 first-boot setup
+#
+# MAC ADDRESSES ARE NOT IN ART.
+# The stock boot log states plainly:
+#     eth0 MAC Address from ART is not valid
+#     eth1 MAC Address from ART is not valid
+# Yet the interfaces come up correctly, so the vendor derives them. Confirmed
+# layout (from `ip addr show` on a live unit) is a contiguous block based on
+# the device serial in the last octet:
+#
+#     base       68:33:2c:00:48:28   wifi1  (5 GHz)   base+0
+#                68:33:2c:00:48:29   wifi0  (2.4 GHz) base+1
+#                68:33:2c:00:48:2a   eth0            base+2
+#                68:33:2c:00:48:2b   eth1            base+3  <- carries br-localman
+#
+# The board label carries the base MAC. 68:33:2c is the vendor ODM/EMS prefix.
+# Set BASE_MAC below to your unit's address; everything else follows.
+
+. /lib/functions.sh
+
+BASE_MAC="68:33:2c:00:48:28"
+
+# Derive base+N. Only the last octet changes across this block, so a simple
+# increment is safe; fall back to leaving MACs unset if the base is unusual.
+base_oid=$(printf '%s' "$BASE_MAC" | cut -d: -f6)
+case "$base_oid" in
+	''|*[!0-9a-fA-F]*)
+		logger -t kap110 "BASE_MAC '$BASE_MAC' is not a valid MAC - skipping MAC setup"
+		;;
+	*)
+		inc_mac() {
+			printf '68:33:2c:00:48:%02x\n' $(( 0x$base_oid + $1 ))
+		}
+		MAC_WIFI1=$(inc_mac 0)
+		MAC_WIFI0=$(inc_mac 1)
+		MAC_ETH0=$(inc_mac 2)
+		MAC_ETH1=$(inc_mac 3)
+
+		uci -q batch <<-EOF
+			set wireless.wifi0.macaddr='$MAC_WIFI0'
+			set wireless.wifi1.macaddr='$MAC_WIFI1'
+			set network.lan.macaddr='$MAC_ETH1'
+			set network.wan.macaddr='$MAC_ETH0'
+			commit wireless
+			commit network
+		EOF
+
+		logger -t kap110 "MACs set: eth1=$MAC_ETH1 wifi0=$MAC_WIFI0 wifi1=$MAC_WIFI1"
+		;;
+esac
+
+# Regulatory domain.
+# The stock log shows "isCountryCodeValid: EEPROM regdomain 0x0" - no valid
+# country code is programmed, which would otherwise leave channels and TX power
+# restricted. CHANGE THIS to your actual country.
+uci -q batch <<-EOF
+	set wireless.radio0.country='US'
+	set wireless.radio1.country='US'
+	commit wireless
+EOF
+
+exit 0

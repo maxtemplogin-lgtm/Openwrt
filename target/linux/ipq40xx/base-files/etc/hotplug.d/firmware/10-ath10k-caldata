@@ -1,0 +1,40 @@
+#!/bin/sh
+# Caldata extraction for Kenstel KAP-110 (IPQ4018, 2x integrated ath10k AHB radios)
+#
+# The stock firmware reads /tmp/wifi0.caldata and /tmp/wifi1.caldata at boot.
+# The boot log shows both reads succeeding, 12064 bytes each, with distinct
+# checksums (0x21b3 for wifi0, 0xe1c9 for wifi1) - so the two radios have
+# separate calibration blobs that must not be interchanged.
+#
+# Invoked by procd as "$1" = action, "$2" = subsystem ("firmware").
+
+[ "$2" = "firmware" ] || exit 0
+
+# Wait briefly for the overlay to be mounted and any vendor cal-copy to finish.
+i=0
+while [ $i -lt 10 ]; do
+	[ -f /tmp/wifi0.caldata ] && [ -f /tmp/wifi1.caldata ] && break
+	sleep 1
+	i=$((i + 1))
+done
+
+if [ -f /tmp/wifi0.caldata ] && [ -f /tmp/wifi1.caldata ]; then
+	logger -t caldata "using existing /tmp/wifi[01].caldata"
+	exit 0
+fi
+
+# Fallback: look for the blobs in the overlay.
+for d in /overlay/upper/lib/firmware /lib/firmware /etc/firmware; do
+	[ -d "$d" ] || continue
+	for r in 0 1; do
+		src="$d/wifi$r.caldata"
+		if [ -f "$src" ]; then
+			cp -f "$src" "/tmp/wifi$r.caldata"
+			logger -t caldata "restored wifi$r.caldata from $src"
+		fi
+	done
+done
+
+if [ ! -f /tmp/wifi0.caldata ] || [ ! -f /tmp/wifi1.caldata ]; then
+	logger -t caldata "MISSING calibration data - radios may not associate"
+fi

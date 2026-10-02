@@ -1,0 +1,30 @@
+#!/bin/sh
+# Kenstel KAP-110 board network configuration
+#
+# Topology recovered from the stock boot log:
+#
+#   br-lan      <- eth1.10   (VLAN 10)  client/traffic LAN
+#   br-apman    <- eth1.20   (VLAN 20)  cloud-managed AP network ("apman")
+#   br-brman    <- eth1.60   (VLAN 60)  backhaul / mesh network ("brman")
+#   br-localman <- eth1      (untagged) native local management
+#
+# The switch CPU port is eth1 (ess-switch on psgmii, PHY 0x4dd0b2, chip 0x1401),
+# NOT eth0. There is no WAN port on this device - it is an AP, not a router.
+#
+# All four port groups live in a single L2 bridge with no L3 separation,
+# reproducing the stock behaviour. To isolate management traffic from client
+# traffic, add firewall zones by hand after first boot, e.g.:
+#
+#   uci add firewall zone
+#   uci set firewall.@zone[-1].name='brman'
+#   uci set firewall.@zone[-1].network='brman'
+#   uci set firewall.@zone[-1].input='REJECT'
+#   uci set firewall.@zone[-1].output='ACCEPT'
+#   uci set firewall.@zone[-1].forward='REJECT'
+#   uci commit firewall
+
+. /lib/functions.sh
+
+ucidef_set_interfaces_lan_wan bridge lan \
+	"eth1.10" "eth1.20" "eth1.60" "eth1" \
+	"br-lan" "br-apman" "br-brman" "br-localman"
