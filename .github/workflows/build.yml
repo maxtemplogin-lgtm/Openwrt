@@ -77,6 +77,8 @@ jobs:
             https://git.openwrt.org/openwrt/openwrt.git openwrt
           cd openwrt
           git log -1 --oneline
+          echo "OpenWrt revision built:"
+          git rev-parse HEAD
 
       - name: Copy KAP-110 device profile into the tree
         run: |
