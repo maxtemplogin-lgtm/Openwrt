@@ -209,27 +209,22 @@ jobs:
           PYEOF
 
           echo "===== 2. build host dtc ====="
-          make tools/install -j$(nproc) >/dev/null 2>&1 || make tools/install
-          DTC=$(find staging_dir/host -type f -name dtc 2>/dev/null | head -1)
-          [ -z "$DTC" ] && DTC=$(find build_dir -type f -name dtc 2>/dev/null | head -1)
+          make tools/install -j$(nproc)
+          DTC=$(find staging_dir/host build_dir -type f -name dtc 2>/dev/null | head -1)
           echo "dtc: ${DTC:-NOT FOUND}"
           if [ -z "$DTC" ]; then
-            echo "::warning::could not locate host dtc; skipping compile check"
-            exit 0
+            # Previously this exited 0, so the step passed WITHOUT ever running
+            # dtc. A validation step that silently skips is worse than none.
+            echo "::error::host dtc not found - DTS was never validated"
+            exit 1
           fi
 
           echo "===== 3. preprocess + compile ====="
-          KVER=$(grep -oE 'KERNEL_PATCHVER[^0-9]*[0-9.]+' tmp/.info 2>/dev/null | grep -oE '[0-9]+\.[0-9.]+' | head -1)
-          KVER=${KVER:-6.12.94}
-          DTSROOT="target/linux/ipq40xx/files-${KVER}/arch/arm/boot/dts"
-          CPP=$(find staging_dir/host -type f -name '*-cpp' 2>/dev/null | head -1)
-          echo "cpp: ${CPP:-<none>}"
+          DTSROOT="target/linux/ipq40xx/files-6.12/arch/arm/boot/dts"
           "$DTC" -O dtb \
             -i"$DTSROOT/qcom" \
             -I"$DTSROOT" \
             -I"$DTSROOT/include" \
-            -I"include" \
-            -I"$DTSROOT/qcom/../include" \
             -Wno-interrupt_provider -Wno-unique_unit_address \
             -Wno-unit_address_vs_reg -Wno-avoid_unnecessary_addr_size \
             -Wno-alias_paths -Wno-graph_child_address -Wno-simple_bus_reg \
