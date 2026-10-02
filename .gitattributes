@@ -1,0 +1,24 @@
+# Build artifacts
+*.bin
+*.itb
+*.ubi
+*.7z
+*.tar*
+*.ipk
+*.apk
+
+# IMPORTANT: keep LF line endings in the device profile. These are shell
+# scripts executed by busybox ash on the router, and by sh on the CI runner.
+# CRLF makes `sh` fail with "\r: command not found".
+* text=auto eol=lf
+
+# The workflow is read by GitHub Actions, which wants LF as well.
+.github/workflows/*.yml text eol=lf
+
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# scratch
+openwrt/
+artifacts/
+dl/
