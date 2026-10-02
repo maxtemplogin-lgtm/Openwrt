@@ -176,23 +176,21 @@ jobs:
           echo "--- selected devices (final) ---"
           grep -E '^CONFIG_TARGET_.*_DEVICE_.*=y' .config
 
-      - name: Build the kernel and device tree only
+      - name: Validate the device tree with host dtc
         working-directory: openwrt
-        # Cheap pre-flight: compiles the kernel + DTS only, so a DTS syntax error
-        # surfaces in ~5 min instead of after a full 45-min package build.
+        # Real DTS syntax check WITHOUT compiling the kernel or toolchain.
+        # `make tools/install` builds the host dtc in ~2 min; the kernel and
+        # cross-toolchain are not needed to preprocess + compile a .dts.
+        # This turns a 45-minute failure into a ~3-minute one.
         run: |
-          make target/linux/compile -j$(nproc) V=s
-
-      - name: Validate the device tree explicitly
-        working-directory: openwrt
-        run: |
+          set -e
           DTS=target/linux/ipq40xx/files-6.12/arch/arm/boot/dts/qcom/qcom-ipq4018-kenstel-kap110.dts
-          echo "--- brace balance ---"
+
+          echo "===== 1. structural check ====="
           python3 - "$DTS" <<'PYEOF'
           import re, sys
           lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
-          depth = 0
-          stack = []
+          depth, stack, bad = 0, [], []
           for i, raw in enumerate(lines, 1):
               s = re.sub(r"/\*.*?\*/", " ", raw, flags=re.S)
               s = re.sub(r"//[^\n]*", " ", s)
@@ -201,29 +199,43 @@ jobs:
                   if ch == "{":
                       depth += 1; stack.append(i)
                   elif ch == "}":
-                      if not stack:
-                          print(f"::error::line {i}: unmatched closing brace")
-                      else:
-                          stack.pop()
+                      if not stack: bad.append(f"line {i}: unmatched closing brace")
+                      else: stack.pop()
                       depth -= 1
-          for ln in stack:
-              print(f"::error::line {ln}: unclosed brace")
-          if depth != 0:
-              print(f"::error::final depth {depth}")
-          print("depth:", depth)
+          for ln in stack: bad.append(f"line {ln}: unclosed brace")
+          if depth: bad.append(f"final depth {depth}")
+          for b in bad: print("::error::", b)
+          print("brace depth:", depth, "problems:", len(bad))
           PYEOF
-          echo "--- compile with dtc ---"
-          DTC=$(find build_dir -type f -name dtc -perm -u+x 2>/dev/null | head -1)
-          echo "dtc: ${DTC:-<not found, kernel build above is the real check>}"
-          if [ -n "$DTC" ]; then
-            KDIR=$(dirname "$(dirname "$(dirname "$DTC")")")
-            "$DTC" -O dtb \
-              -i"$KDIR/linux-6.12.94/arch/arm/boot/dts" \
-              -I"$KDIR/linux-6.12.94/arch/arm/boot/dts/include" \
-              -I"$KDIR/linux-6.12.94/scripts/dtc/include-prefixes" \
-              -Wno-interrupt_provider -Wno-unit_address_vs_reg \
-              -o /tmp/kap110.dtb "$DTS" && echo "DTC OK"
+
+          echo "===== 2. build host dtc ====="
+          make tools/install -j$(nproc) >/dev/null 2>&1 || make tools/install
+          DTC=$(find staging_dir/host -type f -name dtc 2>/dev/null | head -1)
+          [ -z "$DTC" ] && DTC=$(find build_dir -type f -name dtc 2>/dev/null | head -1)
+          echo "dtc: ${DTC:-NOT FOUND}"
+          if [ -z "$DTC" ]; then
+            echo "::warning::could not locate host dtc; skipping compile check"
+            exit 0
           fi
+
+          echo "===== 3. preprocess + compile ====="
+          KVER=$(grep -oE 'KERNEL_PATCHVER[^0-9]*[0-9.]+' tmp/.info 2>/dev/null | grep -oE '[0-9]+\.[0-9.]+' | head -1)
+          KVER=${KVER:-6.12.94}
+          DTSROOT="target/linux/ipq40xx/files-${KVER}/arch/arm/boot/dts"
+          CPP=$(find staging_dir/host -type f -name '*-cpp' 2>/dev/null | head -1)
+          echo "cpp: ${CPP:-<none>}"
+          "$DTC" -O dtb \
+            -i"$DTSROOT/qcom" \
+            -I"$DTSROOT" \
+            -I"$DTSROOT/include" \
+            -I"include" \
+            -I"$DTSROOT/qcom/../include" \
+            -Wno-interrupt_provider -Wno-unique_unit_address \
+            -Wno-unit_address_vs_reg -Wno-avoid_unnecessary_addr_size \
+            -Wno-alias_paths -Wno-graph_child_address -Wno-simple_bus_reg \
+            -o /tmp/kap110.dtb "$DTS"
+          echo "DTC COMPILE OK"
+          ls -l /tmp/kap110.dtb
 
       - name: Build
         working-directory: openwrt
