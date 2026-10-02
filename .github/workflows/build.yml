@@ -112,7 +112,11 @@ jobs:
           CONFIG_TARGET_ipq40xx=y
           CONFIG_TARGET_ipq40xx_generic=y
           CONFIG_TARGET_MULTI_PROFILE=y
-          CONFIG_TARGET_ipq40xx_DEVICE_kenstel_kap110=y
+          # NOTE: the device symbol includes the SUBTARGET:
+          #   CONFIG_TARGET_<target>_<subtarget>_DEVICE_<board>
+          # Writing CONFIG_TARGET_ipq40xx_DEVICE_... silently does nothing and
+          # `make defconfig` leaves every device unselected with no error.
+          CONFIG_TARGET_ipq40xx_generic_DEVICE_kenstel_kap110=y
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl=y
@@ -160,16 +164,17 @@ jobs:
       - name: Verify the board is selected
         working-directory: openwrt
         run: |
-          echo "--- all ipq40xx devices enabled in .config ---"
-          grep -E 'CONFIG_TARGET_ipq40xx_DEVICE_.*=y' .config || echo "(none)"
+          echo "--- all ipq40xx devices ENABLED (=y) ---"
+          grep -E '^CONFIG_TARGET_ipq40xx_generic_DEVICE_.*=y' .config || echo "(NONE ENABLED)"
           echo "--- required check ---"
-          grep -E '^CONFIG_TARGET_ipq40xx_DEVICE_kenstel_kap110=y' .config || {
-            echo "::error::kenstel_kap110 is not present in .config"
-            echo "KERNEL_DEPENDS resolved empty -> DTS filename mismatch."
-            ls target/linux/ipq40xx/files-6.12/arch/arm/boot/dts/qcom/ | grep kenstel || true
+          grep -E '^CONFIG_TARGET_ipq40xx_generic_DEVICE_kenstel_kap110=y' .config || {
+            echo "::error::kenstel_kap110 is not selected in .config"
+            echo "Symbol must be CONFIG_TARGET_ipq40xx_generic_DEVICE_kenstel_kap110"
             exit 1
           }
           echo "kenstel_kap110 selected OK"
+          echo "--- selected devices (final) ---"
+          grep -E '^CONFIG_TARGET_.*_DEVICE_.*=y' .config
 
       - name: Build
         working-directory: openwrt
