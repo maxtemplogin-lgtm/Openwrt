@@ -23,7 +23,7 @@ env:
 jobs:
   build:
     name: Build ipq40xx firmware
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
 
     steps:
@@ -33,12 +33,14 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
+          # NOTE: do NOT list python3-distutils - it was removed in Ubuntu
+          # 24.04+ and its absence fails the whole apt-get run (exit 100).
           sudo apt-get install -y --no-install-recommends \
             build-essential clang flex bison g++ gawk git \
             libncurses-dev libssl-dev python3-setuptools rsync \
             swig unzip zlib1g-dev file wget bzip2 xz-utils \
-            ecj fastjar java-propose-classpath python3-distutils \
-            python3-jsonschema python3-yaml
+            ecj fastjar java-propose-classpath \
+            python3-jsonschema python3-yaml ccache
 
       - name: Free disk space
         # GitHub runners ship with ~25GB free; a full ipq40xx toolchain build
@@ -65,11 +67,11 @@ jobs:
 
       - name: Configure ccache
         run: |
-          sudo apt-get install -y ccache
           echo "CCACHE_DIR=/home/runner/.ccache" >> "$GITHUB_ENV"
           echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
           echo "CCACHE_COMPRESS=1" >> "$GITHUB_ENV"
-          ccache -M 5G
+          ccache --max-size=5G
+          ccache -s
 
       - name: Clone OpenWrt
         run: |
