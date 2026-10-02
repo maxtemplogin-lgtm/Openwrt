@@ -20,8 +20,8 @@ define Device/kenstel_kap110
     DEVICE_MODEL := KAP-110
     DEVICE_TITLE := Kenstel KAP-110 (IPQ4018) dual-band AP
     DEVICE_PACKAGES := kmod-usb-acm
-    SOC := qcom-ipq4018
-    DEVICE_DTS_CONFIG := config@ap.dk01.1-c2
+    SOC := qcom-ipq4019
+    DEVICE_DTS := qcom-ipq4018-kenstel-kap110
     BLOCKSIZE := 128k
     PAGESIZE := 2048
     IMAGE_SIZE := 65536k
@@ -32,5 +32,4 @@ define Device/kenstel_kap110
     IMAGE/factory.ubi := append-ubi | pad-to 2048
     IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
-
 TARGET_DEVICES += kenstel_kap110

@@ -1,40 +1,55 @@
 #!/bin/sh
 # Caldata extraction for Kenstel KAP-110 (IPQ4018, 2x integrated ath10k AHB radios)
 #
-# The stock firmware reads /tmp/wifi0.caldata and /tmp/wifi1.caldata at boot.
-# The boot log shows both reads succeeding, 12064 bytes each, with distinct
-# checksums (0x21b3 for wifi0, 0xe1c9 for wifi1) - so the two radios have
-# separate calibration blobs that must not be interchanged.
+# The blobs are read directly out of the 0:ART partition, exactly as the stock
+# firmware does in /lib/read_caldata_to_fs.sh:
+#
+#     dd if=<0:ART> of=/tmp/wifi0.caldata bs=32 count=377 skip=128   -> 0x1000
+#     dd if=<0:ART> of=/tmp/wifi1.caldata bs=32 count=377 skip=640   -> 0x5000
+#
+# 377 * 32 = 12064 bytes (0x2F20), matching the size the stock boot log reports
+# ("Download Flash data len 12064") and the precal nvmem cells in the device DTS
+# (precal_art_1000 / precal_art_5000, each 0x2F20 bytes).
+#
+# /tmp is tmpfs and empty on every boot, so this must run each time. The DTS also
+# wires the same regions up as nvmem pre-calibration cells, which is the modern
+# path; this script is kept for compatibility and as a fallback.
 #
 # Invoked by procd as "$1" = action, "$2" = subsystem ("firmware").
 
 [ "$2" = "firmware" ] || exit 0
 
-# Wait briefly for the overlay to be mounted and any vendor cal-copy to finish.
+[ -f /tmp/wifi0.caldata ] && [ -f /tmp/wifi1.caldata ] && exit 0
+
+# Give the overlay a moment to mount before falling back.
 i=0
-while [ $i -lt 10 ]; do
+while [ $i -lt 5 ]; do
 	[ -f /tmp/wifi0.caldata ] && [ -f /tmp/wifi1.caldata ] && break
 	sleep 1
 	i=$((i + 1))
 done
+[ -f /tmp/wifi0.caldata ] && [ -f /tmp/wifi1.caldata ] && exit 0
 
-if [ -f /tmp/wifi0.caldata ] && [ -f /tmp/wifi1.caldata ]; then
-	logger -t caldata "using existing /tmp/wifi[01].caldata"
+mtdblock=$(find_mtd_part 0:ART)
+[ -z "$mtdblock" ] && mtdblock=$(find_mmc_part 0:ART)
+
+if [ -z "$mtdblock" ]; then
+	logger -t caldata "no 0:ART partition found - radios may not associate"
 	exit 0
 fi
 
-# Fallback: look for the blobs in the overlay.
-for d in /overlay/upper/lib/firmware /lib/firmware /etc/firmware; do
-	[ -d "$d" ] || continue
-	for r in 0 1; do
-		src="$d/wifi$r.caldata"
-		if [ -f "$src" ]; then
-			cp -f "$src" "/tmp/wifi$r.caldata"
-			logger -t caldata "restored wifi$r.caldata from $src"
-		fi
-	done
+dd if="${mtdblock}" of=/tmp/wifi0.caldata bs=32 count=377 skip=128 2>/dev/null
+dd if="${mtdblock}" of=/tmp/wifi1.caldata bs=32 count=377 skip=640 2>/dev/null
+
+# Verify both reads produced the expected size before letting ath10k start.
+for r in 0 1; do
+	f="/tmp/wifi$r.caldata"
+	if [ ! -f "$f" ] || [ "$(stat -c %s "$f" 2>/dev/null)" != "12064" ]; then
+		rm -f "$f"
+		logger -t caldata "wifi$r.caldata extraction failed or wrong size"
+	fi
 done
 
-if [ ! -f /tmp/wifi0.caldata ] || [ ! -f /tmp/wifi1.caldata ]; then
-	logger -t caldata "MISSING calibration data - radios may not associate"
+if [ -f /tmp/wifi0.caldata ] && [ -f /tmp/wifi1.caldata ]; then
+	logger -t caldata "extracted wifi0/wifi1 caldata from 0:ART"
 fi
