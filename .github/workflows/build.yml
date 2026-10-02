@@ -85,10 +85,17 @@ jobs:
       - name: Copy KAP-110 device profile into the tree
         run: |
           cp -rv "$GITHUB_WORKSPACE/target/linux/ipq40xx/." openwrt/target/linux/ipq40xx/
+          # image/Makefile only includes generic.mk, so the device stanza must be
+          # appended there - a separate .mk file would never be sourced.
+          cp -v "$GITHUB_WORKSPACE/patches/kenstel-kap110-ipq40xx.patch" \
+                openwrt/target/linux/ipq40xx/image/generic.mk
           # make the new board appear in `make menuconfig`
           touch openwrt/target/linux/ipq40xx/Makefile
           cd openwrt
-          grep -n 'kenstel' target/linux/ipq40xx/image/kenstel-kap110.mk
+          echo "--- stanza registered? ---"
+          grep -n 'kenstel_kap110' target/linux/ipq40xx/image/generic.mk
+          echo "--- dts present? ---"
+          ls -l target/linux/ipq40xx/files-6.12/arch/arm/boot/dts/qcom/qcom-ipq4018-kenstel-kap110.dts
 
       - name: Update feeds
         working-directory: openwrt
@@ -121,10 +128,16 @@ jobs:
       - name: Verify the board is selected
         working-directory: openwrt
         run: |
-          grep -E 'CONFIG_TARGET_ipq40xx_DEVICE_kenstel_kap110' .config || {
+          echo "--- all ipq40xx devices enabled in .config ---"
+          grep -E 'CONFIG_TARGET_ipq40xx_DEVICE_.*=y' .config || echo "(none)"
+          echo "--- required check ---"
+          grep -E '^CONFIG_TARGET_ipq40xx_DEVICE_kenstel_kap110=y' .config || {
             echo "::error::kenstel_kap110 is not present in .config"
+            echo "KERNEL_DEPENDS resolved empty -> DTS filename mismatch."
+            ls target/linux/ipq40xx/files-6.12/arch/arm/boot/dts/qcom/ | grep kenstel || true
             exit 1
           }
+          echo "kenstel_kap110 selected OK"
 
       - name: Build
         working-directory: openwrt
