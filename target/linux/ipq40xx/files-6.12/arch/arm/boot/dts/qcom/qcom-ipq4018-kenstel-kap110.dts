@@ -188,8 +188,9 @@
 					};
 				};
 			};
-		}
+		};
 	};
+};
 
 	spi-nand@1 {
 		compatible = "spi-nand";
@@ -207,7 +208,6 @@
 			};
 		};
 	};
-};
 
 &blsp1_uart1 {
 	pinctrl-0 = <&serial_pins>;
