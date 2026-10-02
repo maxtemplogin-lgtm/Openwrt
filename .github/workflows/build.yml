@@ -124,6 +124,38 @@ jobs:
           CONFIG_CCACHE=y
           EOF
           make defconfig
+          # A target/subtarget change often needs a second pass to settle.
+          make defconfig
+
+      - name: Diagnose target selection
+        working-directory: openwrt
+        # Prints everything needed to diagnose "device missing from .config".
+        # If this step is ever removed, failures here become unexplainable.
+        run: |
+          echo "===== CONFIG_TARGET_* in .config ====="
+          grep -E '^CONFIG_TARGET' .config || echo "(NO CONFIG_TARGET AT ALL)"
+          echo
+          echo "===== every *_DEVICE_* symbol ====="
+          grep -E '_DEVICE_' .config || echo "(none)"
+          echo
+          echo "===== .config size / mtime ====="
+          ls -l .config
+          echo
+          echo "===== generic.mk: is our stanza present? ====="
+          grep -n 'kenstel' target/linux/ipq40xx/image/generic.mk || echo "STANZA MISSING"
+          echo
+          echo "===== what devices does OpenWrt think ipq40xx/generic has? ====="
+          grep -c 'TARGET_DEVICES +=' target/linux/ipq40xx/image/generic.mk
+          echo
+          echo "===== DTS files (first 10 + ours) ====="
+          ls target/linux/ipq40xx/files-6.12/arch/arm/boot/dts/qcom/ | head -10
+          ls -l target/linux/ipq40xx/files-6.12/arch/arm/boot/dts/qcom/ | grep kenstel || echo "DTS MISSING"
+          echo
+          echo "===== subtarget files present ====="
+          ls target/linux/ipq40xx/image/
+          echo
+          echo "===== does the target Makefile declare the subtarget? ====="
+          grep -nE 'SUBTARGET|TARGET_NAME' target/linux/ipq40xx/Makefile | head
 
       - name: Verify the board is selected
         working-directory: openwrt
