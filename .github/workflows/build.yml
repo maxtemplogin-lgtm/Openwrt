@@ -223,52 +223,75 @@ jobs:
           fi
 
           echo "===== 3. preprocess + compile ====="
-          DTSROOT="target/linux/ipq40xx/files-6.12/arch/arm/boot/dts"
+          STAGE=/tmp/dtsstage
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/qcom" "$STAGE/include/dt-bindings"/{soc,clock,interrupt-controller}
+          KVER=v6.12
+          RAW=https://raw.githubusercontent.com/torvalds/linux/$KVER
 
-          # The board .dts is C-preprocessed before dtc sees it. The cpp
-          # include paths must mirror what the kernel build uses:
-          #   <dts>/qcom            - board + SoC .dtsi files
-          #   <dts>                 - top level
-          #   <dts>/../include      - dt-bindings (populated after kernel prepare)
-          # NOTE: dtc treats a nonexistent -I path as an INPUT FILE and dies with
-          # 'Unknown input format'. Only pass directories that really exist.
-          INCS=""
-          for d in "$DTSROOT/qcom" "$DTSROOT" "$DTSROOT/../include" \
-                   "$DTSROOT/qcom/../../../../../include"; do
-            if [ -d "$d" ]; then
-              INCS="$INCS -I$d"
-              echo "  include: $d"
-            else
-              echo "  skip (absent): $d"
-            fi
+          # OpenWrt's tree holds only BOARD .dts files. The SoC description
+          # (qcom-ipq4019.dtsi) and the dt-bindings headers come from the kernel
+          # source, which is not unpacked until after target/linux is prepared.
+          # Fetch the transitive include set so this check needs no kernel build.
+          #
+          # NOTE: dt-bindings/soc/qcom,tcsr.h does NOT exist in torvalds v6.12
+          # (that dir has only apr/gpr/gsbi/rpmh-rsc). It comes from Qualcomm's
+          # qcom-dts tree, which OpenWrt pulls in as a kernel patch. Try both.
+          fetch() { # url dest
+            curl -sSfL --max-time 40 "$1" -o "$2" \
+              || { echo "    MISSING: $1"; return 1; }
+            echo "    ok $(basename "$2")"
+          }
+
+          echo "  SoC descriptors:"
+          fetch "$RAW/arch/arm/boot/dts/qcom/qcom-ipq4019.dtsi" "$STAGE/qcom/qcom-ipq4019.dtsi"
+          # NOTE: there is no qcom-ipq4018.dtsi upstream; qcom-ipq4019.dtsi is
+          # self-contained (it includes only clock/qcom,gcc-ipq4019.h,
+          # interrupt-controller/arm-gic.h and irq.h).
+
+          echo "  dt-bindings:"
+          for h in \
+            clock/qcom,gcc-ipq4019.h \
+            interrupt-controller/arm-gic.h \
+            interrupt-controller/irq.h \
+            gpio/gpio.h \
+            input/input.h \
+            leds/common.h ; do
+            mkdir -p "$STAGE/include/dt-bindings/$(dirname "$h")"
+            fetch "$RAW/include/dt-bindings/$h" "$STAGE/include/dt-bindings/$h"
           done
-          # dt-bindings live in the kernel include tree; grab them from upstream
-          # so this check does not depend on a prepared kernel.
-          if [ ! -d "$DTSROOT/../include" ] && [ ! -d "$DTSROOT/qcom/../../../../../include" ]; then
-            echo "  dt-bindings absent locally - fetching from upstream kernel"
-            mkdir -p /tmp/dtb/include
-            for h in gpio input leds soc/qcom,tcsr.h; do
-              mkdir -p "/tmp/dtb/include/dt-bindings/$(dirname "$h")"
-              curl -sSfL --max-time 30 \
-                "https://raw.githubusercontent.com/torvalds/linux/v6.12/include/dt-bindings/$h" \
-                -o "/tmp/dtb/include/dt-bindings/$h" || echo "    warn: missing dt-bindings/$h"
-            done
-            INCS="$INCS -I/tmp/dtb/include"
-          fi
+
+          # dt-bindings/soc/qcom,tcsr.h exists in NEITHER torvalds linux v6.12
+          # (that dir has only apr/gpr/gsbi/rpmh-rsc) nor the OpenWrt tree - it
+          # ships in Qualcomm's own kernel source, which OpenWrt downloads during
+          # target/linux prepare. For a syntax check the numeric values are
+          # irrelevant, only the macro names must exist, so stub them.
+          cat > "$STAGE/include/dt-bindings/soc/qcom,tcsr.h" <<'STUB'
+          #ifndef __DT_BINDINGS_SOC_QCOM_TCSR_H
+          #define __DT_BINDINGS_SOC_QCOM_TCSR_H
+          #define TCSR_WIFI_GLB_CFG 0
+          #define TCSR_ESS_PSGMII 0
+          #define TCSR_USB_HSPHY_HOST_MODE 0
+          #define TCSR_WIFI_NOC_MEMTYPE_M0_M2 0
+          #endif
+          STUB
+          echo "    stubbed qcom,tcsr.h (syntax check only)"
+
+          echo "  staged files:"; find "$STAGE" -type f | sed "s|$STAGE/||"
 
           # Preprocess with the host cpp, exactly as the kernel build does.
-          CPPFLAGS="-nostdinc -undef -D__DTS__ -x assembler-with-cpp"
-          for f in $INCS; do CPPFLAGS="$CPPFLAGS -I${f#-I}"; done
-          cpp $CPPFLAGS -o /tmp/kap110.dts.pp "$DTS"
-          echo "preprocess OK ($(wc -l < /tmp/kap110.dts.pp) lines)"
+          cpp -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
+            -I"$STAGE/qcom" -I"$STAGE" -I"$STAGE/include" \
+            -o "$STAGE/kap110.dts.pp" "$DTS"
+          echo "preprocess OK ($(wc -l < "$STAGE/kap110.dts.pp") lines)"
 
           "$DTC" -O dtb \
             -Wno-interrupt_provider -Wno-unique_unit_address \
             -Wno-unit_address_vs_reg -Wno-avoid_unnecessary_addr_size \
             -Wno-alias_paths -Wno-graph_child_address -Wno-simple_bus_reg \
-            -o /tmp/kap110.dtb /tmp/kap110.dts.pp
+            -o "$STAGE/kap110.dtb" "$STAGE/kap110.dts.pp"
           echo "DTC COMPILE OK"
-          ls -l /tmp/kap110.dtb
+          ls -l "$STAGE/kap110.dtb"
 
       - name: Build
         working-directory: openwrt
