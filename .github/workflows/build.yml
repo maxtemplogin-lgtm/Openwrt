@@ -244,7 +244,8 @@ jobs:
           }
 
           echo "  SoC descriptors:"
-          fetch "$RAW/arch/arm/boot/dts/qcom/qcom-ipq4019.dtsi" "$STAGE/qcom/qcom-ipq4019.dtsi"
+          fetch "$RAW/arch/arm/boot/dts/qcom/qcom-ipq4019.dtsi" \
+                "$STAGE/arch/arm/boot/dts/qcom/qcom-ipq4019.dtsi"
           # NOTE: there is no qcom-ipq4018.dtsi upstream; qcom-ipq4019.dtsi is
           # self-contained (it includes only clock/qcom,gcc-ipq4019.h,
           # interrupt-controller/arm-gic.h and irq.h).
@@ -283,7 +284,43 @@ jobs:
           # Rather than hand-maintaining the list - which failed twice - resolve
           # any remaining missing header automatically, trying both the exact
           # path and the include/uapi/ and include/linux/ variants.
-          echo "  resolving transitive includes:"
+          echo "  applying OpenWrt ipq40xx dts patches:"
+          # The switch/CPU-port labels (gmac, switch, swport1-5) do NOT exist in
+          # stock Linux - OpenWrt adds them via patches to the target, e.g.
+          #   707-arm-dts-ipq4019-add-switch-node.patch
+          #   710-arm-dts-qcom-ipq4019-QCA807x-properties.patch
+          # Without these the board DTS fails with "Label or path switch not
+          # found" even though the DTS is correct.
+          mkdir -p "$STAGE/patches" "$STAGE/arch/arm/boot/dts/qcom"
+          # The patch paths are a/arch/arm/boot/dts/qcom/... so -p1 must strip
+          # the leading dir and land in $STAGE/arch/arm/boot/dts/qcom/.
+          # $STAGE/qcom is the -I path; point it at the patched tree.
+          for p in \
+            707-arm-dts-ipq4019-add-switch-node.patch \
+            710-arm-dts-qcom-ipq4019-QCA807x-properties.patch \
+            100-ARM-dts-qcom-ipq4019-add-label-to-SCM.patch \
+            712-ARM-dts-qcom-ipq4019-add-reference-label-for-PCIe.patch ; do
+            if fetch "https://raw.githubusercontent.com/openwrt/openwrt/v25.12.5/target/linux/ipq40xx/patches-6.12/$p" \
+                      "$STAGE/patches/$p"; then
+              # git-format patches apply cleanly with patch(1).
+              if patch -p1 -d "$STAGE" --no-backup-if-mismatch -s \
+                   < "$STAGE/patches/$p" 2>"$STAGE/patches/$p.err"; then
+                echo "    applied $p"
+              else
+                echo "    could not apply $p:"
+                head -3 "$STAGE/patches/$p.err" | sed 's/^/      /'
+              fi
+            fi
+          done
+          # Verify the switch node really landed; without it every board DTS
+          # using &switch / &swportN fails to compile.
+          if grep -q 'swport1' "$STAGE/arch/arm/boot/dts/qcom/qcom-ipq4019.dtsi" 2>/dev/null; then
+            echo "    switch node present in patched dtsi"
+          else
+            echo "    ::error::switch node missing - DTS cannot reference &switch/&swportN"
+            exit 1
+          fi
+          echo "  fetching known transitive headers:"
           # Known case, fetched by its exact upstream path. input.h does
           #   #include "linux-event-codes.h"
           # which resolves to include/uapi/linux/input-event-codes.h upstream.
@@ -322,7 +359,7 @@ jobs:
 
           # Preprocess with the host cpp, exactly as the kernel build does.
           cpp -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
-            -I"$STAGE/qcom" -I"$STAGE" -I"$STAGE/include" \
+            -I"$STAGE/arch/arm/boot/dts/qcom" -I"$STAGE" -I"$STAGE/include" \
             -o "$STAGE/kap110.dts.pp" "$DTS"
           echo "preprocess OK ($(wc -l < "$STAGE/kap110.dts.pp") lines)"
 
