@@ -75,6 +75,10 @@ jobs:
 
       - name: Clone OpenWrt
         run: |
+          # This repository is named "Openwrt", so the runner workspace path
+          # collides with a bare `git clone ... openwrt`. Remove any stale
+          # directory first so the step is idempotent on re-runs.
+          rm -rf openwrt
           git clone --depth 1 --branch "$OPENWRT_VERSION" \
             https://git.openwrt.org/openwrt/openwrt.git openwrt
           cd openwrt
