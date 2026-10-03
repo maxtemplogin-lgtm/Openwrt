@@ -242,6 +242,18 @@ jobs:
           else
             echo "02_network clean (untagged DSA ports only)"
           fi
+          # ucidef_set_interfaces_lan_wan sets proto=static and the port list but
+          # NO ipaddr/netmask, so br-lan comes up with no address and 192.168.1.1
+          # is unreachable. The LAN address must be set explicitly.
+          if ! grep -qE "network\.lan\.ipaddr" "$NETWORK"; then
+            echo "::error::02_network sets no ipaddr - LAN will be unreachable"
+            exit 1
+          fi
+          grep -q '192.168.1.1' "$NETWORK" \\
+            || { echo "::error::expected LAN ip 192.168.1.1 in 02_network"; exit 1; }
+          grep -q 'network.lan.netmask' "$NETWORK" \\
+            || { echo "::error::02_network sets ipaddr but no netmask"; exit 1; }
+          echo "LAN address configured (192.168.1.1/24)"
 
       - name: Validate the device tree with host dtc
         working-directory: openwrt

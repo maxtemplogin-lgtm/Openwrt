@@ -24,6 +24,12 @@
 # AP comes up with no reachable LAN. The bridge is created automatically from
 # the device list.
 #
+# The helper does NOT set an IP address:
+#   ucidef_set_interface_lan -> ucidef_set_interface "lan" device "$1" protocol static
+# That yields proto=static with no ipaddr and no netmask, so br-lan comes up with
+# no address and 192.168.1.1 is unreachable. ipaddr/netmask MUST be added here.
+# (Verified in package/base-files/files/lib/functions/uci-defaults.sh.)
+#
 # NAMING: the stock (QSDK) firmware used eth1 with tagged VLANs (br-lan eth1.10,
 # br-apman eth1.20, br-brman eth1.60, br-localman eth1). That does NOT translate
 # to upstream OpenWrt, where DSA names the CPU port eth0 and the switch ports
@@ -37,4 +43,19 @@
 
 . /lib/functions.sh
 
-ucidef_set_interfaces_lan_wan "lan0 lan1 lan2 lan3" "wan"
+LAN_IF="lan0 lan1 lan2 lan3"
+LAN_IP="192.168.1.1"
+LAN_NETMASK="255.255.255.0"
+
+# Declares network.lan (port list + proto static) and network.wan (proto dhcp).
+ucidef_set_interfaces_lan_wan "$LAN_IF" "wan"
+
+# The helper leaves ipaddr/netmask unset, so supply them explicitly. Without
+# this, br-lan has no address and 192.168.1.1 never answers.
+uci -q batch <<EOF
+set network.lan.ipaddr='$LAN_IP'
+set network.lan.netmask='$LAN_NETMASK'
+commit network
+EOF
+
+exit 0
