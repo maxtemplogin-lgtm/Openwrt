@@ -196,8 +196,21 @@ jobs:
             echo "::error::platform_check missing - sysupgrade would be refused"
             exit 1
           fi
-          echo "--- 02_network must not reference non-existent VLANs ---"
-          if grep -qE '"eth[0-9]+\.[0-9]+"' target/linux/ipq40xx/base-files/etc/board.d/02_network; then
+          echo "--- 02_network must use the correct helper arity ---"
+          NETWORK=target/linux/ipq40xx/base-files/etc/board.d/02_network
+          # ucidef_set_interfaces_lan_wan takes exactly TWO args: LAN devices as
+          # ONE space-separated string, then WAN. A "bridge lan ..." prefix sets
+          # network.lan.device to a literal non-interface and silently drops the
+          # ports - the AP then boots with no reachable LAN and nothing warns.
+          if grep -qE '^\s*ucidef_set_interfaces_lan_wan\s+bridge' "$NETWORK"; then
+            echo "::error::ucidef_set_interfaces_lan_wan called with a 'bridge' prefix"
+            echo "  correct form: ucidef_set_interfaces_lan_wan \"lan0 lan1 lan2 lan3\" \"wan\""
+            exit 1
+          fi
+          if ! grep -qE '^\s*ucidef_set_interfaces_lan_wan\s+"[^"]*\s+[^"]*"\s+"' "$NETWORK"; then
+            echo "::warning::no quoted two-argument ucidef_set_interfaces_lan_wan found"
+          fi
+          if grep -qE '"eth[0-9]+\.[0-9]+"' "$NETWORK"; then
             echo "::warning::02_network still references tagged VLANs"
           else
             echo "02_network clean (untagged DSA ports only)"

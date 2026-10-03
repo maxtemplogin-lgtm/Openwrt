@@ -15,6 +15,15 @@
 # All four LAN ports plus the CPU port sit in one bridge. There is no WAN port
 # and no NAT: this is an access point, not a router.
 #
+# SYNTAX: ucidef_set_interfaces_lan_wan takes exactly TWO arguments - the LAN
+# device(s) as ONE space-separated string, then the WAN device. There is no
+# "bridge lan" prefix. Upstream ipq40xx boards use e.g.:
+#     ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "wan"
+# Passing "bridge lan lan0 lan1 ..." silently sets network.lan.device to the
+# literal string "bridge", which is not an interface, and drops the ports, so the
+# AP comes up with no reachable LAN. The bridge is created automatically from
+# the device list.
+#
 # NAMING: the stock (QSDK) firmware used eth1 with tagged VLANs (br-lan eth1.10,
 # br-apman eth1.20, br-brman eth1.60, br-localman eth1). That does NOT translate
 # to upstream OpenWrt, where DSA names the CPU port eth0 and the switch ports
@@ -28,4 +37,4 @@
 
 . /lib/functions.sh
 
-ucidef_set_interfaces_lan_wan bridge lan "lan0" "lan1" "lan2" "lan3"
+ucidef_set_interfaces_lan_wan "lan0 lan1 lan2 lan3" "wan"
