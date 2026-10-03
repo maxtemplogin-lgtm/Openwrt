@@ -188,14 +188,25 @@ jobs:
         run: |
           PLAT=target/linux/ipq40xx/base-files/lib/upgrade/platform.sh
           echo "--- platform.sh ---"
-          grep -nE 'platform_check|platform_do_upgrade|kenstel,kap110' "$PLAT" \
-            || { echo "::error::missing platform handlers"; exit 1; }
-          if grep -q 'platform_check' "$PLAT"; then
-            echo "platform_check present"
-          else
-            echo "::error::platform_check missing - sysupgrade would be refused"
+          # sbin/sysupgrade aborts with "Firmware upgrade is not implemented for
+          # this platform." unless platform_check_image is DEFINED. Defining a
+          # differently-named function (platform_check) does nothing - which is
+          # the bug that produced that exact error twice.
+          if ! grep -q '^platform_check_image()' "$PLAT"; then
+            echo "::error::platform_check_image not defined - sysupgrade will be refused"
             exit 1
           fi
+          echo "platform_check_image defined"
+          if grep -qE '^platform_check\(\)' "$PLAT"; then
+            echo "::error::found platform_check(), which sysupgrade never calls"
+            exit 1
+          fi
+          # This file REPLACES an upstream file; make sure nothing was lost.
+          for b in asus,map-ac1300 zte,mf18a glinet,gl-b2200 platform_copy_config; do
+            grep -q "$b" "$PLAT" || { echo "::error::lost upstream content: $b"; exit 1; }
+          done
+          grep -q 'kenstel,kap110' "$PLAT" || { echo "::error::KAP-110 case missing"; exit 1; }
+          echo "upstream handlers intact, KAP-110 case present"
           echo "--- 02_network must use the correct helper arity ---"
           NETWORK=target/linux/ipq40xx/base-files/etc/board.d/02_network
           # ucidef_set_interfaces_lan_wan takes exactly TWO args: LAN devices as
