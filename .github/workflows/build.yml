@@ -277,10 +277,12 @@ jobs:
           STUB
           echo "    stubbed qcom,tcsr.h (syntax check only)"
 
-          # input.h includes "linux-event-codes.h" (a UAPI header, not a
-          # dt-binding). Rather than hand-maintaining the transitive list - which
-          # is how the previous two runs failed - resolve any remaining missing
-          # header automatically from the upstream kernel.
+          # input.h includes "linux-event-codes.h" as a BARE filename (quoted, not
+          # <angled>), so it must be placed at exactly $STAGE/include/<name>.
+          # It lives at include/uapi/linux/input-event-codes.h upstream.
+          # Rather than hand-maintaining the list - which failed twice - resolve
+          # any remaining missing header automatically, trying both the exact
+          # path and the include/uapi/ and include/linux/ variants.
           echo "  resolving transitive includes:"
           for i in 1 2 3 4 5 6 7 8; do
             missing=$(cpp -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
@@ -289,12 +291,23 @@ jobs:
             still=""
             for h in $missing; do
               [ -f "$STAGE/include/$h" ] && continue
-              for cand in "include/uapi/$h" "include/$h"; do
-                if fetch "$RAW/$cand" "$STAGE/include/$h" >/dev/null 2>&1; then
-                  echo "    resolved $h -> $cand"; break
-                fi
+              base=$(basename "$h")
+              got=""
+              for dest in "$STAGE/include/$base" "$STAGE/include/$h"; do
+                for cand in "include/uapi/linux/$base" "include/linux/$base" \
+                            "include/uapi/$h" "include/$h"; do
+                  if fetch "$RAW/$cand" "$dest" >/dev/null 2>&1; then
+                    echo "    resolved $base -> $cand"; got=1; break
+                  fi
+                done
+                [ -n "$got" ] && break
               done
-              [ -f "$STAGE/include/$h" ] || still="$still $h"
+              if [ -n "$got" ]; then
+                # Also drop it at the include/ root so quoted includes resolve.
+                [ -f "$STAGE/include/$base" ] || cp "$STAGE/include/$h" "$STAGE/include/$base" 2>/dev/null || true
+              else
+                still="$still $base"
+              fi
             done
             [ -z "$still" ] && break
             echo "    unresolved:$still"
