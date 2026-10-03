@@ -206,7 +206,11 @@ jobs:
             grep -q "$b" "$PLAT" || { echo "::error::lost upstream content: $b"; exit 1; }
           done
           grep -q 'kenstel,kap110' "$PLAT" || { echo "::error::KAP-110 case missing"; exit 1; }
-          echo "upstream handlers intact, KAP-110 case present"
+          # PART_NAME must be the stock partition label 'rootfs'. If it is
+          # 'firmware', mtd finds no such partition, falls back to the literal
+          # default 'image', and the upgrade writes nothing at all.
+          grep -q '^PART_NAME=rootfs' "$PLAT" \n            || { echo "::error::PART_NAME must be rootfs, got: $(grep '^PART_NAME=' "$PLAT")"; exit 1; }
+          echo "upstream handlers intact, KAP-110 case present, PART_NAME=rootfs"
           echo "--- 02_network must use the correct helper arity ---"
           NETWORK=target/linux/ipq40xx/base-files/etc/board.d/02_network
           # ucidef_set_interfaces_lan_wan takes exactly TWO args: LAN devices as
