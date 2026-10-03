@@ -23,7 +23,7 @@
 PART_NAME=rootfs
 REQUIRE_IMAGE_METADATA=1
 
-RAMFS_COPY_BIN='fw_printenv fw_setenv'
+RAMFS_COPY_BIN='fw_printenv fw_setenv mtd ubiattach ubidetach ubimkvol ubirmvol ubiupdatevol ubiformat nanddump flash_erase'
 RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
 
 platform_check_image() {
@@ -133,6 +133,12 @@ platform_do_upgrade_mikrotik_nand() {
 
 platform_do_upgrade() {
 	case "$(board_name)" in
+	kenstel,kap110)
+		CI_UBIPART="rootfs"
+		CI_KERNPART="kernel"
+		CI_ROOTPART="rootfs"
+		nand_do_upgrade "$1"
+		;;
 	8dev,jalapeno|\
 	aruba,ap-303|\
 	aruba,ap-303h|\

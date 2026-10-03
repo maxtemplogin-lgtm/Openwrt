@@ -211,6 +211,18 @@ jobs:
           # default 'image', and the upgrade writes nothing at all.
           grep -q '^PART_NAME=rootfs' "$PLAT" \n            || { echo "::error::PART_NAME must be rootfs, got: $(grep '^PART_NAME=' "$PLAT")"; exit 1; }
           echo "upstream handlers intact, KAP-110 case present, PART_NAME=rootfs"
+          # The rootfs partition is a UBI device carrying the stock volumes
+          # kernel/ubi_rootfs/rootfs_data. A raw "mtd write" (default_do_upgrade)
+          # cannot write it: "Could not open mtd device: rootfs". The image is a
+          # tar of UBI volumes, so nand_do_upgrade is the only correct path.
+          grep -q 'CI_UBIPART="rootfs"' "$PLAT" \
+            || { echo "::error::CI_UBIPART=rootfs not set"; exit 1; }
+          awk '/^platform_do_upgrade\(\)/,/^}/' "$PLAT" | grep -q nand_do_upgrade \
+            || { echo "::error::KAP-110 do_upgrade must use nand_do_upgrade, not default_do_upgrade"; exit 1; }
+          for t in ubiattach ubimkvol ubirmvol ubiupdatevol; do
+            grep -q "$t" "$PLAT" || { echo "::error::$t missing from RAMFS_COPY_BIN"; exit 1; }
+          done
+          echo "UBI upgrade path configured (nand_do_upgrade + UBI tools)"
           echo "--- 02_network must use the correct helper arity ---"
           NETWORK=target/linux/ipq40xx/base-files/etc/board.d/02_network
           # ucidef_set_interfaces_lan_wan takes exactly TWO args: LAN devices as
