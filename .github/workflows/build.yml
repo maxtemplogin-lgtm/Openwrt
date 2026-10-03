@@ -269,8 +269,11 @@ jobs:
           }
 
           echo "  SoC descriptors:"
+          # Fetch to arch/... for `patch -p1` (its paths are a/arch/boot/dts/qcom/...)
+          # and mirror into qcom/ as the -I include directory.
           fetch "$RAW/arch/arm/boot/dts/qcom/qcom-ipq4019.dtsi" \
-                "$STAGE/arch/arm/boot/dts/qcom/qcom-ipq4019.dtsi"
+                "$STAGE/arch/arm/boot/dts/qcom/qcom-ipq4019.dtsi" \
+            && cp "$STAGE/arch/arm/boot/dts/qcom/qcom-ipq4019.dtsi" "$STAGE/qcom/"
           # NOTE: there is no qcom-ipq4018.dtsi upstream; qcom-ipq4019.dtsi is
           # self-contained (it includes only clock/qcom,gcc-ipq4019.h,
           # interrupt-controller/arm-gic.h and irq.h).
@@ -322,18 +325,18 @@ jobs:
           # $STAGE/qcom is the -I path; point it at the patched tree.
           for p in \
             707-arm-dts-ipq4019-add-switch-node.patch \
-            710-arm-dts-qcom-ipq4019-QCA807x-properties.patch \
+            710-arm-dts-ipq4019-QCA807x-properties.patch \
             100-ARM-dts-qcom-ipq4019-add-label-to-SCM.patch \
             712-ARM-dts-qcom-ipq4019-add-reference-label-for-PCIe.patch ; do
             if fetch "https://raw.githubusercontent.com/openwrt/openwrt/v25.12.5/target/linux/ipq40xx/patches-6.12/$p" \
                       "$STAGE/patches/$p"; then
               # git-format patches apply cleanly with patch(1).
-              if patch -p1 -d "$STAGE" --no-backup-if-mismatch -s \
+              if patch -p1 -d "$STAGE" --no-backup-if-mismatch -s -f \
                    < "$STAGE/patches/$p" 2>"$STAGE/patches/$p.err"; then
                 echo "    applied $p"
               else
-                echo "    could not apply $p:"
-                head -3 "$STAGE/patches/$p.err" | sed 's/^/      /'
+                echo "    FAILED $p:"
+                sed 's/^/      /' "$STAGE/patches/$p.err" | head -8
               fi
             fi
           done
@@ -383,6 +386,7 @@ jobs:
           echo "  staged files:"; find "$STAGE" -type f | sed "s|$STAGE/||"
 
           # Preprocess with the host cpp, exactly as the kernel build does.
+          # -I points at the PATCHED tree so the switch/swport labels resolve.
           cpp -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
             -I"$STAGE/arch/arm/boot/dts/qcom" -I"$STAGE" -I"$STAGE/include" \
             -o "$STAGE/kap110.dts.pp" "$DTS"
