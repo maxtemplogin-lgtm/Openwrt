@@ -284,33 +284,38 @@ jobs:
           # any remaining missing header automatically, trying both the exact
           # path and the include/uapi/ and include/linux/ variants.
           echo "  resolving transitive includes:"
-          for i in 1 2 3 4 5 6 7 8; do
+          # Known case, fetched by its exact upstream path. input.h does
+          #   #include "linux-event-codes.h"
+          # which resolves to include/uapi/linux/input-event-codes.h upstream.
+          # Note the basename is input-event-codes.h, NOT linux-event-codes.h -
+          # prefixing the directory with the missing name would look for
+          # linux/linux-event-codes.h and 404.
+          fetch "$RAW/include/uapi/linux/input-event-codes.h" \
+                "$STAGE/include/linux-event-codes.h" && \
+            echo "    staged linux-event-codes.h"
+
+          # Generic fallback for anything else still missing.
+          for i in 1 2 3 4 5; do
             missing=$(cpp -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
                         -I"$STAGE/qcom" -I"$STAGE" -I"$STAGE/include" \
                         -M "$DTS" 2>&1 >/dev/null | grep -oE '"[^"]+\.h"' | tr -d '"' | sort -u)
             still=""
             for h in $missing; do
-              [ -f "$STAGE/include/$h" ] && continue
               base=$(basename "$h")
+              [ -f "$STAGE/include/$base" ] && continue
+              [ -f "$STAGE/include/$h" ] && continue
               got=""
-              for dest in "$STAGE/include/$base" "$STAGE/include/$h"; do
-                for cand in "include/uapi/linux/$base" "include/linux/$base" \
-                            "include/uapi/$h" "include/$h"; do
-                  if fetch "$RAW/$cand" "$dest" >/dev/null 2>&1; then
-                    echo "    resolved $base -> $cand"; got=1; break
-                  fi
-                done
-                [ -n "$got" ] && break
+              for cand in "include/uapi/linux/$base" "include/linux/$base" \
+                          "include/uapi/$h" "include/$h"; do
+                if fetch "$RAW/$cand" "$STAGE/include/$base" >/dev/null 2>&1; then
+                  echo "    resolved $base -> $cand"; got=1; break
+                fi
               done
-              if [ -n "$got" ]; then
-                # Also drop it at the include/ root so quoted includes resolve.
-                [ -f "$STAGE/include/$base" ] || cp "$STAGE/include/$h" "$STAGE/include/$base" 2>/dev/null || true
-              else
-                still="$still $base"
-              fi
+              [ -n "$got" ] || still="$still $base"
             done
             [ -z "$still" ] && break
-            echo "    unresolved:$still"
+            echo "    unresolved:$still (cannot auto-resolve; run will fail)"
+            break
           done
 
           echo "  staged files:"; find "$STAGE" -type f | sed "s|$STAGE/||"
