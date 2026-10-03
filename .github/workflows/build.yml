@@ -208,14 +208,17 @@ jobs:
           print("brace depth:", depth, "problems:", len(bad))
           PYEOF
 
-          echo "===== 2. build host dtc ====="
-          make tools/install -j$(nproc)
-          DTC=$(find staging_dir/host build_dir -type f -name dtc 2>/dev/null | head -1)
+          echo "===== 2. install device-tree-compiler ====="
+          # NOT `make tools/install`: dtc is not in OpenWrt's tools/ tree. It
+          # ships with the kernel source and only exists after the kernel is
+          # prepared (which needs the full cross-toolchain).
+          # The distro package is the fast, dependency-free way to get dtc.
+          sudo apt-get install -y device-tree-compiler
+          DTC=$(command -v dtc)
           echo "dtc: ${DTC:-NOT FOUND}"
+          dtc --version 2>&1 | head -1
           if [ -z "$DTC" ]; then
-            # Previously this exited 0, so the step passed WITHOUT ever running
-            # dtc. A validation step that silently skips is worse than none.
-            echo "::error::host dtc not found - DTS was never validated"
+            echo "::error::dtc unavailable - DTS would go unvalidated"
             exit 1
           fi
 
