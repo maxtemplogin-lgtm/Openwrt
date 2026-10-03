@@ -277,6 +277,29 @@ jobs:
           STUB
           echo "    stubbed qcom,tcsr.h (syntax check only)"
 
+          # input.h includes "linux-event-codes.h" (a UAPI header, not a
+          # dt-binding). Rather than hand-maintaining the transitive list - which
+          # is how the previous two runs failed - resolve any remaining missing
+          # header automatically from the upstream kernel.
+          echo "  resolving transitive includes:"
+          for i in 1 2 3 4 5 6 7 8; do
+            missing=$(cpp -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
+                        -I"$STAGE/qcom" -I"$STAGE" -I"$STAGE/include" \
+                        -M "$DTS" 2>&1 >/dev/null | grep -oE '"[^"]+\.h"' | tr -d '"' | sort -u)
+            still=""
+            for h in $missing; do
+              [ -f "$STAGE/include/$h" ] && continue
+              for cand in "include/uapi/$h" "include/$h"; do
+                if fetch "$RAW/$cand" "$STAGE/include/$h" >/dev/null 2>&1; then
+                  echo "    resolved $h -> $cand"; break
+                fi
+              done
+              [ -f "$STAGE/include/$h" ] || still="$still $h"
+            done
+            [ -z "$still" ] && break
+            echo "    unresolved:$still"
+          done
+
           echo "  staged files:"; find "$STAGE" -type f | sed "s|$STAGE/||"
 
           # Preprocess with the host cpp, exactly as the kernel build does.
