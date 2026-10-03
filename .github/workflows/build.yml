@@ -224,14 +224,49 @@ jobs:
 
           echo "===== 3. preprocess + compile ====="
           DTSROOT="target/linux/ipq40xx/files-6.12/arch/arm/boot/dts"
+
+          # The board .dts is C-preprocessed before dtc sees it. The cpp
+          # include paths must mirror what the kernel build uses:
+          #   <dts>/qcom            - board + SoC .dtsi files
+          #   <dts>                 - top level
+          #   <dts>/../include      - dt-bindings (populated after kernel prepare)
+          # NOTE: dtc treats a nonexistent -I path as an INPUT FILE and dies with
+          # 'Unknown input format'. Only pass directories that really exist.
+          INCS=""
+          for d in "$DTSROOT/qcom" "$DTSROOT" "$DTSROOT/../include" \
+                   "$DTSROOT/qcom/../../../../../include"; do
+            if [ -d "$d" ]; then
+              INCS="$INCS -I$d"
+              echo "  include: $d"
+            else
+              echo "  skip (absent): $d"
+            fi
+          done
+          # dt-bindings live in the kernel include tree; grab them from upstream
+          # so this check does not depend on a prepared kernel.
+          if [ ! -d "$DTSROOT/../include" ] && [ ! -d "$DTSROOT/qcom/../../../../../include" ]; then
+            echo "  dt-bindings absent locally - fetching from upstream kernel"
+            mkdir -p /tmp/dtb/include
+            for h in gpio input leds soc/qcom,tcsr.h; do
+              mkdir -p "/tmp/dtb/include/dt-bindings/$(dirname "$h")"
+              curl -sSfL --max-time 30 \
+                "https://raw.githubusercontent.com/torvalds/linux/v6.12/include/dt-bindings/$h" \
+                -o "/tmp/dtb/include/dt-bindings/$h" || echo "    warn: missing dt-bindings/$h"
+            done
+            INCS="$INCS -I/tmp/dtb/include"
+          fi
+
+          # Preprocess with the host cpp, exactly as the kernel build does.
+          CPPFLAGS="-nostdinc -undef -D__DTS__ -x assembler-with-cpp"
+          for f in $INCS; do CPPFLAGS="$CPPFLAGS -I${f#-I}"; done
+          cpp $CPPFLAGS -o /tmp/kap110.dts.pp "$DTS"
+          echo "preprocess OK ($(wc -l < /tmp/kap110.dts.pp) lines)"
+
           "$DTC" -O dtb \
-            -i"$DTSROOT/qcom" \
-            -I"$DTSROOT" \
-            -I"$DTSROOT/include" \
             -Wno-interrupt_provider -Wno-unique_unit_address \
             -Wno-unit_address_vs_reg -Wno-avoid_unnecessary_addr_size \
             -Wno-alias_paths -Wno-graph_child_address -Wno-simple_bus_reg \
-            -o /tmp/kap110.dtb "$DTS"
+            -o /tmp/kap110.dtb /tmp/kap110.dts.pp
           echo "DTC COMPILE OK"
           ls -l /tmp/kap110.dtb
 
