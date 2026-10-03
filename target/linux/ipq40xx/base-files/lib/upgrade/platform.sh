@@ -131,12 +131,45 @@ platform_do_upgrade_mikrotik_nand() {
 	nand_do_upgrade "$1"
 }
 
+platform_pre_upgrade() {
+	case "$(board_name)" in
+	kenstel,kap110)
+		# Runs while the full system is still up, so /proc/mtd is readable here
+		# (verified on the device: mtd8: 04000000 00020000 "rootfs"). Capture the
+		# index now so platform_do_upgrade can use it inside the stage2 ramdisk.
+		KAP110_ROOTFS_MTD="$(find_mtd_index rootfs)"
+		export KAP110_ROOTFS_MTD
+		;;
+	esac
+	return 0
+}
+
 platform_do_upgrade() {
 	case "$(board_name)" in
 	kenstel,kap110)
 		CI_UBIPART="rootfs"
 		CI_KERNPART="kernel"
 		CI_ROOTPART="rootfs"
+		# find_mtd_index() greps /proc/mtd. In the stage2 ramdisk /proc is moved
+		# in by supivot() and /proc/mtd is not readable there, so the grep returns
+		# nothing and nand_attach_ubi dies with:
+		#     cannot find ubi mtd partition rootfs
+		# Resolve the index on the live system (platform_pre_upgrade, before the
+		# ramdisk switch) and fall back to it when /proc/mtd has no answer.
+		if [ -z "$KAP110_ROOTFS_MTD" ]; then
+			KAP110_ROOTFS_MTD="$(find_mtd_index rootfs)"
+			export KAP110_ROOTFS_MTD
+		fi
+		kap110_find_mtd_index() {
+			local idx
+			idx="$(grep "\"$1\"" /proc/mtd 2>/dev/null | awk -F: '{print $1}')"
+			idx="${idx##mtd}"
+			if [ -z "$idx" ] && [ "$1" = "rootfs" ]; then
+				idx="$KAP110_ROOTFS_MTD"
+			fi
+			echo "$idx"
+		}
+		find_mtd_index() { kap110_find_mtd_index "$@"; }
 		nand_do_upgrade "$1"
 		;;
 	8dev,jalapeno|\

@@ -218,6 +218,13 @@ jobs:
           # tar of UBI volumes, so nand_do_upgrade is the only correct path.
           grep -q 'CI_UBIPART="rootfs"' "$PLAT" \
             || { echo "::error::CI_UBIPART=rootfs not set"; exit 1; }
+          # find_mtd_index() greps /proc/mtd, which is not readable inside the
+          # stage2 ramdisk, so the index must be captured on the live system via
+          # platform_pre_upgrade (which runs before switch_to_ramfs).
+          grep -q '^platform_pre_upgrade()' "$PLAT" \
+            || { echo "::error::platform_pre_upgrade missing - MTD index cannot be captured"; exit 1; }
+          grep -q 'KAP110_ROOTFS_MTD' "$PLAT" \
+            || { echo "::error::KAP110_ROOTFS_MTD fallback missing"; exit 1; }
           awk '/^platform_do_upgrade\(\)/,/^}/' "$PLAT" | grep -q nand_do_upgrade \
             || { echo "::error::KAP-110 do_upgrade must use nand_do_upgrade, not default_do_upgrade"; exit 1; }
           for t in ubiattach ubimkvol ubirmvol ubiupdatevol; do
