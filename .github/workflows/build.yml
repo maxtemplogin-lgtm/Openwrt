@@ -209,7 +209,8 @@ jobs:
           # PART_NAME must be the stock partition label 'rootfs'. If it is
           # 'firmware', mtd finds no such partition, falls back to the literal
           # default 'image', and the upgrade writes nothing at all.
-          grep -q '^PART_NAME=rootfs' "$PLAT" \n            || { echo "::error::PART_NAME must be rootfs, got: $(grep '^PART_NAME=' "$PLAT")"; exit 1; }
+          grep -q '^PART_NAME=rootfs' "$PLAT" \
+            || { echo "::error::PART_NAME must be rootfs, got: $(grep '^PART_NAME=' "$PLAT")"; exit 1; }
           echo "upstream handlers intact, KAP-110 case present, PART_NAME=rootfs"
           # The rootfs partition is a UBI device carrying the stock volumes
           # kernel/ubi_rootfs/rootfs_data. A raw "mtd write" (default_do_upgrade)
@@ -234,8 +235,8 @@ jobs:
             echo "  correct form: ucidef_set_interfaces_lan_wan \"lan0 lan1 lan2 lan3\" \"wan\""
             exit 1
           fi
-          if ! grep -qE '^\s*ucidef_set_interfaces_lan_wan\s+"[^"]*\s+[^"]*"\s+"' "$NETWORK"; then
-            echo "::warning::no quoted two-argument ucidef_set_interfaces_lan_wan found"
+          if ! grep -qE '^\s*ucidef_set_interfaces_lan_wan\s+("|\$)' "$NETWORK"; then
+            echo "::warning::no quoted/variable two-argument ucidef_set_interfaces_lan_wan found"
           fi
           if grep -qE '"eth[0-9]+\.[0-9]+"' "$NETWORK"; then
             echo "::warning::02_network still references tagged VLANs"
@@ -249,9 +250,9 @@ jobs:
             echo "::error::02_network sets no ipaddr - LAN will be unreachable"
             exit 1
           fi
-          grep -q '192.168.1.1' "$NETWORK" \\
+          grep -q '192.168.1.1' "$NETWORK" \
             || { echo "::error::expected LAN ip 192.168.1.1 in 02_network"; exit 1; }
-          grep -q 'network.lan.netmask' "$NETWORK" \\
+          grep -q 'network.lan.netmask' "$NETWORK" \
             || { echo "::error::02_network sets ipaddr but no netmask"; exit 1; }
           echo "LAN address configured (192.168.1.1/24)"
 
