@@ -225,9 +225,30 @@ jobs:
           echo "===== 3. preprocess + compile ====="
           STAGE=/tmp/dtsstage
           rm -rf "$STAGE"
-          mkdir -p "$STAGE/qcom" "$STAGE/include/dt-bindings"/{soc,clock,interrupt-controller}
+          # Create the FULL tree up front. curl exits 23 ("Failure writing output
+          # to destination") if the destination directory is missing, and that
+          # happened because the patch staging dir was created after first use.
+          mkdir -p \
+            "$STAGE/qcom" \
+            "$STAGE/arch/arm/boot/dts/qcom" \
+            "$STAGE/include/dt-bindings/soc" \
+            "$STAGE/include/dt-bindings/clock" \
+            "$STAGE/include/dt-bindings/interrupt-controller" \
+            "$STAGE/include/dt-bindings/gpio" \
+            "$STAGE/include/dt-bindings/input" \
+            "$STAGE/include/dt-bindings/leds" \
+            "$STAGE/patches"
           KVER=v6.12
           RAW=https://raw.githubusercontent.com/torvalds/linux/$KVER
+
+          # Fail loudly if any destination is not writable, before curl(23)
+          # failures turn into confusing "MISSING" messages later.
+          for d in "$STAGE" "$STAGE/arch/arm/boot/dts/qcom" "$STAGE/include" "$STAGE/patches"; do
+            if ! touch "$d/.wtest" 2>/dev/null; then
+              echo "::error::staging dir not writable: $d"; exit 1
+            fi
+            rm -f "$d/.wtest"
+          done
 
           # OpenWrt's tree holds only BOARD .dts files. The SoC description
           # (qcom-ipq4019.dtsi) and the dt-bindings headers come from the kernel
@@ -238,8 +259,12 @@ jobs:
           # (that dir has only apr/gpr/gsbi/rpmh-rsc). It comes from Qualcomm's
           # qcom-dts tree, which OpenWrt pulls in as a kernel patch. Try both.
           fetch() { # url dest
-            curl -sSfL --max-time 40 "$1" -o "$2" \
-              || { echo "    MISSING: $1"; return 1; }
+            if ! curl -sSfL --max-time 40 "$1" -o "$2" 2>"$STAGE/fetch.err"; then
+              echo "    MISSING: $1"
+              echo "      curl said: $(head -1 "$STAGE/fetch.err")"
+              echo "      dest dir exists: $([ -d "$(dirname "$2")" ] && echo yes || echo NO)"
+              return 1
+            fi
             echo "    ok $(basename "$2")"
           }
 
