@@ -323,10 +323,18 @@ jobs:
           # The patch paths are a/arch/arm/boot/dts/qcom/... so -p1 must strip
           # the leading dir and land in $STAGE/arch/arm/boot/dts/qcom/.
           # $STAGE/qcom is the -I path; point it at the patched tree.
+          # Apply in NUMERIC patch order. OpenWrt applies target patches in
+          # sorted order and the hunks can sit close together, so applying them
+          # out of order makes a later hunk miss its context.
+          # Apply in NUMERIC order and include EVERY dtsi-affecting patch.
+          # 705 adds `gmac: ethernet@c080000` which 707's hunk context requires -
+          # without it 707 reports "context mismatch" because gmac is absent from
+          # stock v6.12 entirely.
           for p in \
+            100-ARM-dts-qcom-ipq4019-add-label-to-SCM.patch \
+            705-ARM-dts-qcom-ipq4019-Add-description-for-the-IPQESS-.patch \
             707-arm-dts-ipq4019-add-switch-node.patch \
             710-arm-dts-ipq4019-QCA807x-properties.patch \
-            100-ARM-dts-qcom-ipq4019-add-label-to-SCM.patch \
             712-ARM-dts-qcom-ipq4019-add-reference-label-for-PCIe.patch ; do
             if fetch "https://raw.githubusercontent.com/openwrt/openwrt/v25.12.5/target/linux/ipq40xx/patches-6.12/$p" \
                       "$STAGE/patches/$p"; then
