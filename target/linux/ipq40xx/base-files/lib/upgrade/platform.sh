@@ -150,18 +150,38 @@ platform_do_upgrade() {
 		CI_UBIPART="rootfs"
 		CI_KERNPART="kernel"
 		CI_ROOTPART="rootfs"
-		# find_mtd_index() greps /proc/mtd. In the stage2 ramdisk /proc is moved
-		# in by supivot() and /proc/mtd is not readable there, so the grep returns
-		# nothing and nand_attach_ubi dies with:
+		# Two /proc/mtd problems on this board, both handled here.
+		#
+		# (1) find_mtd_index() greps /proc/mtd. In the stage2 ramdisk /proc is
+		# moved in by supivot() and /proc/mtd is not readable there, so the grep
+		# returns nothing and nand_attach_ubi dies with:
 		#     cannot find ubi mtd partition rootfs
 		# Resolve the index on the live system (platform_pre_upgrade, before the
 		# ramdisk switch) and fall back to it when /proc/mtd has no answer.
+		#
+		# (2) /proc/mtd on this board ALSO lists the UBI VOLUMES as pseudo
+		# partitions:
+		#     mtd9:  003c1000 0001f000 "kernel"
+		#     mtd10: 0141a000 0001f000 "ubi_rootfs"
+		#     mtd11: 0250e000 0001f000 "rootfs_data"
+		# Their erasesize is 0x1f000 (126976 = UBI LEB size), not a real erase
+		# block - they are volumes, not raw MTD partitions. nand_upgrade_tar
+		# branches on find_mtd_index "$CI_KERNPART": if it returns a number it
+		# takes the RAW path and does
+		#     dd if=/dev/zero bs=4096 count=1 | mtd write - kernel
+		#     ... | mtd write - kernel
+		# i.e. it zeroes and then raw-writes over the kernel UBI VOLUME. That is
+		# exactly the case the upstream comment warns about ("These devices brick
+		# if the kernel partition is erased"). So report "kernel" as NOT an MTD
+		# partition here, which makes nand_upgrade_tar use the ubiupdatevol path
+		# (kernel written into the UBI volume) instead.
 		if [ -z "$KAP110_ROOTFS_MTD" ]; then
 			KAP110_ROOTFS_MTD="$(find_mtd_index rootfs)"
 			export KAP110_ROOTFS_MTD
 		fi
 		kap110_find_mtd_index() {
 			local idx
+			[ "$1" = "kernel" ] && { echo ""; return 0; }
 			idx="$(grep "\"$1\"" /proc/mtd 2>/dev/null | awk -F: '{print $1}')"
 			idx="${idx##mtd}"
 			if [ -z "$idx" ] && [ "$1" = "rootfs" ]; then
