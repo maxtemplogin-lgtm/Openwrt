@@ -1,30 +1,31 @@
 #!/bin/sh
 # Kenstel KAP-110 board network configuration
 #
-# Topology recovered from the stock boot log:
+# VERIFIED LIVE on the initramfs build: this topology reaches 192.168.1.1 from a
+# PC plugged into lan0-lan3.
 #
-#   br-lan      <- eth1.10   (VLAN 10)  client/traffic LAN
-#   br-apman    <- eth1.20   (VLAN 20)  cloud-managed AP network ("apman")
-#   br-brman    <- eth1.60   (VLAN 60)  backhaul / mesh network ("brman")
-#   br-localman <- eth1      (untagged) native local management
+# Topology confirmed from the working initramfs console:
+#   eth0   = CPU port, ipqess-edma c080000.ethernet (netifd enslaves it to br-lan)
+#   lan0   = swport1  PHY [90000.mdio-1:00] QCA8072
+#   lan1   = swport2  PHY [90000.mdio-1:01]
+#   lan2   = swport3  PHY [90000.mdio-1:02]
+#   lan3   = swport4  PHY [90000.mdio-1:03]
+#   wan    = swport5  PHY [90000.mdio-1:04]   <- deliberately NOT bridged
 #
-# The switch CPU port is eth1 (ess-switch on psgmii, PHY 0x4dd0b2, chip 0x1401),
-# NOT eth0. There is no WAN port on this device - it is an AP, not a router.
+# All four LAN ports plus the CPU port sit in one bridge. There is no WAN port
+# and no NAT: this is an access point, not a router.
 #
-# All four port groups live in a single L2 bridge with no L3 separation,
-# reproducing the stock behaviour. To isolate management traffic from client
-# traffic, add firewall zones by hand after first boot, e.g.:
+# NAMING: the stock (QSDK) firmware used eth1 with tagged VLANs (br-lan eth1.10,
+# br-apman eth1.20, br-brman eth1.60, br-localman eth1). That does NOT translate
+# to upstream OpenWrt, where DSA names the CPU port eth0 and the switch ports
+# lan0-lan3/wan. Reproducing the VLAN design needs explicit vlan/untagged/pvid
+# nodes in the DTS; without them the tagged interfaces come up but nothing
+# forwards. Plain untagged LAN is the verified configuration.
 #
-#   uci add firewall zone
-#   uci set firewall.@zone[-1].name='brman'
-#   uci set firewall.@zone[-1].network='brman'
-#   uci set firewall.@zone[-1].input='REJECT'
-#   uci set firewall.@zone[-1].output='ACCEPT'
-#   uci set firewall.@zone[-1].forward='REJECT'
-#   uci commit firewall
+# The vendor VLAN split (cloud management / backhaul) is intentionally dropped:
+# the device is being taken off Kenstel's cloud, so those networks no longer
+# have a purpose.
 
 . /lib/functions.sh
 
-ucidef_set_interfaces_lan_wan bridge lan \
-	"eth1.10" "eth1.20" "eth1.60" "eth1" \
-	"br-lan" "br-apman" "br-brman" "br-localman"
+ucidef_set_interfaces_lan_wan bridge lan "lan0" "lan1" "lan2" "lan3"

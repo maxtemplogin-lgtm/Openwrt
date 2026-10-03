@@ -11,8 +11,13 @@
 #
 #     base       68:33:2c:00:48:28   wifi1  (5 GHz)   base+0
 #                68:33:2c:00:48:29   wifi0  (2.4 GHz) base+1
-#                68:33:2c:00:48:2a   eth0            base+2
-#                68:33:2c:00:48:2b   eth1            base+3  <- carries br-localman
+#                68:33:2c:00:48:2a   eth0 (CPU port) base+2  <- carries br-lan
+#                68:33:2c:00:48:2b   eth1  (stock fw) base+3
+#
+# Under upstream OpenWrt the DSA switch port and CPU-port MACs are read from
+# the ART nvmem cells defined in the DTS (macaddr_gmac0 / macaddr_gmac1), so
+# eth0/br-lan and lan0-lan3 already get correct addresses without help. Only
+# the Wi-Fi MACs need setting here.
 #
 # The board label carries the base MAC. 68:33:2c is the vendor ODM/EMS prefix.
 # Set BASE_MAC below to your unit's address; everything else follows.
@@ -34,19 +39,14 @@ case "$base_oid" in
 		}
 		MAC_WIFI1=$(inc_mac 0)
 		MAC_WIFI0=$(inc_mac 1)
-		MAC_ETH0=$(inc_mac 2)
-		MAC_ETH1=$(inc_mac 3)
 
 		uci -q batch <<-EOF
 			set wireless.wifi0.macaddr='$MAC_WIFI0'
 			set wireless.wifi1.macaddr='$MAC_WIFI1'
-			set network.lan.macaddr='$MAC_ETH1'
-			set network.wan.macaddr='$MAC_ETH0'
 			commit wireless
-			commit network
 		EOF
 
-		logger -t kap110 "MACs set: eth1=$MAC_ETH1 wifi0=$MAC_WIFI0 wifi1=$MAC_WIFI1"
+		logger -t kap110 "Wi-Fi MACs set: wifi0=$MAC_WIFI0 wifi1=$MAC_WIFI1"
 		;;
 esac
 
