@@ -180,6 +180,29 @@ jobs:
           echo "--- selected devices (final) ---"
           grep -E '^CONFIG_TARGET_.*_DEVICE_.*=y' .config
 
+      - name: Verify sysupgrade handlers are present
+        working-directory: openwrt
+        # Without platform_check/returning 0, LuCI refuses the image with
+        # "Firmware upgrade is not implemented for this platform" - but only at
+        # flash time, long after a successful build. Catch it here instead.
+        run: |
+          PLAT=target/linux/ipq40xx/base-files/lib/upgrade/platform.sh
+          echo "--- platform.sh ---"
+          grep -nE 'platform_check|platform_do_upgrade|kenstel,kap110' "$PLAT" \
+            || { echo "::error::missing platform handlers"; exit 1; }
+          if grep -q 'platform_check' "$PLAT"; then
+            echo "platform_check present"
+          else
+            echo "::error::platform_check missing - sysupgrade would be refused"
+            exit 1
+          fi
+          echo "--- 02_network must not reference non-existent VLANs ---"
+          if grep -qE '"eth[0-9]+\.[0-9]+"' target/linux/ipq40xx/base-files/etc/board.d/02_network; then
+            echo "::warning::02_network still references tagged VLANs"
+          else
+            echo "02_network clean (untagged DSA ports only)"
+          fi
+
       - name: Validate the device tree with host dtc
         working-directory: openwrt
         # Real DTS syntax check WITHOUT compiling the kernel or toolchain.
