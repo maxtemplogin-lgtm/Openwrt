@@ -43,19 +43,55 @@
 
 . /lib/functions.sh
 
-LAN_IF="lan0 lan1 lan2 lan3"
+# The config is written EXPLICITLY rather than through
+# ucidef_set_interfaces_lan_wan. That helper emits JSON on stdout, which
+# config_generate collects and merges; on this board the merge did not land and
+# netifd fell back to its DSA default, producing:
+#     config device
+#             option name 'br-lan'
+#             option type 'bridge'
+#             list ports 'eth0'        <- CPU port only, no LAN ports
+# so br-lan came up with eth0 alone and the switch ports were never enslaved.
+# Writing /etc/config/network directly is deterministic and matches the layout
+# verified working on the device (brctl showing lan0-lan3 in br-lan).
+#
+# Ports (from `ip -o link show` on the device):
+#   lan0@eth0 .. lan3@eth0  = switch ports 1-4
+#   wan@eth0                = switch port 5, deliberately not bridged
+# eth0 is the CPU port and is NOT listed: adding it alongside the DSA children
+# is what the generated config did wrong.
+
 LAN_IP="192.168.1.1"
 LAN_NETMASK="255.255.255.0"
 
-# Declares network.lan (port list + proto static) and network.wan (proto dhcp).
-ucidef_set_interfaces_lan_wan "$LAN_IF" "wan"
+{
+	echo "config interface 'loopback'"
+	echo "	option device 'lo'"
+	echo "	option proto 'static'"
+	echo "	list ipaddr '127.0.0.1/8'"
 
-# The helper leaves ipaddr/netmask unset, so supply them explicitly. Without
-# this, br-lan has no address and 192.168.1.1 never answers.
-uci -q batch <<EOF
-set network.lan.ipaddr='$LAN_IP'
-set network.lan.netmask='$LAN_NETMASK'
-commit network
-EOF
+	echo
+	echo "config device"
+	echo "	option name 'br-lan'"
+	echo "	option type 'bridge'"
+	# Written out literally rather than looped over a variable, so CI can
+	# assert each port is present and a reviewer can read the whole config here.
+	echo "	list ports 'lan0'"
+	echo "	list ports 'lan1'"
+	echo "	list ports 'lan2'"
+	echo "	list ports 'lan3'"
+
+	echo
+	echo "config interface 'lan'"
+	echo "	option device 'br-lan'"
+	echo "	option proto 'static'"
+	echo "	list ipaddr '$LAN_IP/$LAN_NETMASK'"
+	echo "	option ip6assign '60'"
+
+	echo
+	echo "config interface 'wan'"
+	echo "	option device 'wan'"
+	echo "	option proto 'dhcp'"
+} > /etc/config/network
 
 exit 0

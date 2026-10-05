@@ -242,26 +242,35 @@ jobs:
             echo "  correct form: ucidef_set_interfaces_lan_wan \"lan0 lan1 lan2 lan3\" \"wan\""
             exit 1
           fi
-          if ! grep -qE '^\s*ucidef_set_interfaces_lan_wan\s+("|\$)' "$NETWORK"; then
-            echo "::warning::no quoted/variable two-argument ucidef_set_interfaces_lan_wan found"
+          if grep -v '^[[:space:]]*#' "$NETWORK" | grep -q "ucidef_set_interfaces_lan_wan"; then
+            echo "::warning::ucidef helper present; its JSON did not merge on this board"
           fi
           if grep -qE '"eth[0-9]+\.[0-9]+"' "$NETWORK"; then
             echo "::warning::02_network still references tagged VLANs"
           else
             echo "02_network clean (untagged DSA ports only)"
           fi
-          # ucidef_set_interfaces_lan_wan sets proto=static and the port list but
-          # NO ipaddr/netmask, so br-lan comes up with no address and 192.168.1.1
-          # is unreachable. The LAN address must be set explicitly.
-          if ! grep -qE "network\.lan\.ipaddr" "$NETWORK"; then
-            echo "::error::02_network sets no ipaddr - LAN will be unreachable"
+          # 02_network writes /etc/config/network explicitly; the ipaddr appears
+          # as a UCI "list ipaddr" line rather than a network.lan.ipaddr option.
+          grep -q "192.168.1.1" "$NETWORK" \
+            || { echo "::error::expected LAN ip 192.168.1.1 in 02_network"; exit 1; }
+          grep -q "list ipaddr" "$NETWORK" \
+            || { echo "::error::02_network assigns no address to lan"; exit 1; }
+          # The bridge must be an explicit 'config device' with list ports.
+          # ucidef_set_interfaces_lan_wan's JSON did not survive the
+          # config_generate merge on this board; netifd fell back to a bridge of
+          # the CPU port only (list ports 'eth0'), leaving lan0-lan3 unenslaved.
+          grep -q "option type 'bridge'" "$NETWORK" \
+            || { echo "::error::no explicit bridge device in 02_network"; exit 1; }
+          for p in lan0 lan1 lan2 lan3; do
+            grep -q "list ports '$p'" "$NETWORK" \
+              || { echo "::error::bridge is missing port $p"; exit 1; }
+          done
+          if grep -v '^[[:space:]]*#' "$NETWORK" | grep -q "list ports 'eth0'"; then
+            echo "::error::CPU port eth0 must not be listed; netifd adds it itself"
             exit 1
           fi
-          grep -q '192.168.1.1' "$NETWORK" \
-            || { echo "::error::expected LAN ip 192.168.1.1 in 02_network"; exit 1; }
-          grep -q 'network.lan.netmask' "$NETWORK" \
-            || { echo "::error::02_network sets ipaddr but no netmask"; exit 1; }
-          echo "LAN address configured (192.168.1.1/24)"
+          echo "LAN address configured (192.168.1.1/24), bridge = lan0-lan3"
 
       - name: Validate the device tree with host dtc
         working-directory: openwrt
