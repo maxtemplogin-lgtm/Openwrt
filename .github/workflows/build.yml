@@ -225,6 +225,13 @@ jobs:
             || { echo "::error::platform_pre_upgrade missing - MTD index cannot be captured"; exit 1; }
           grep -q 'KAP110_ROOTFS_MTD' "$PLAT" \
             || { echo "::error::KAP110_ROOTFS_MTD fallback missing"; exit 1; }
+          # The exported variable was NOT enough in testing; platform_pre_upgrade
+          # must also save /proc/mtd, which survives the stage2 pivot because
+          # /tmp does. Without this the lookup returns empty again.
+          grep -q 'kap110.proc.mtd' "$PLAT" \
+            || { echo "::error::no /tmp/kap110.proc.mtd cache - MTD lookup will fail in stage2"; exit 1; }
+          grep -q 'cp /proc/mtd /tmp/kap110.proc.mtd' "$PLAT" \
+            || { echo "::error::platform_pre_upgrade does not capture /proc/mtd"; exit 1; }
           awk '/^platform_do_upgrade\(\)/,/^}/' "$PLAT" | grep -q nand_do_upgrade \
             || { echo "::error::KAP-110 do_upgrade must use nand_do_upgrade, not default_do_upgrade"; exit 1; }
           for t in ubiattach ubimkvol ubirmvol ubiupdatevol; do
