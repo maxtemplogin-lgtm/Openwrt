@@ -191,6 +191,24 @@
 		};
 	};
 
+	qcom,nand@7980000 {
+		compatible = "qcom,msm-nand";
+		reg = <0x7980000 0x400>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "rootfs";
+				reg = <0x00000000 0x04000000>;
+			};
+		};
+	};
+
 	spi-nand@1 {
 		compatible = "spi-nand";
 		reg = <1>;
